@@ -1,135 +1,122 @@
 package com.example.myapplication;
 
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import android.Manifest;
-import android.accessibilityservice.AccessibilityService;
-import android.app.AlertDialog;
-import android.content.ComponentName;
+import android.accounts.AccountManager;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Bundle;
-import android.provider.Settings;
-import android.text.TextUtils;
-import android.util.Log;
+import android.os.StrictMode;
 import android.view.View;
+import android.widget.AdapterView;
 import android.widget.Button;
+import android.widget.ListView;
+import android.widget.TextView;
+import android.widget.Toast;
+import java.util.ArrayList;
+import java.util.List;
+import static android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK;
 
 public class MainActivity extends AppCompatActivity{
 
-    Button servisButon;
+    Button loginButton;
     Context context;
-    private int MY_PERMISSIONS_REQUEST_SMS_RECEIVE = 10;
-    private static final String ENABLED_NOTIFICATION_LISTENERS = "enabled_notification_listeners";
-    private static final String ACTION_NOTIFICATION_LISTENER_SETTINGS = "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS";
-    private AlertDialog enableNotificationListenerAlertDialog;
-
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == MY_PERMISSIONS_REQUEST_SMS_RECEIVE) {
-            Log.i("TAG", "MY_PERMISSIONS_REQUEST_SMS_RECEIVE --> YES");
-        }
-    }
+    TextView info;
+    AccountAdapter mAdapter;
+    Button deleteButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
 
-        ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.RECEIVE_SMS}, MY_PERMISSIONS_REQUEST_SMS_RECEIVE);
+        StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
+        StrictMode.setThreadPolicy(policy);
 
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         context = this;
-        servisButon = (Button)findViewById(R.id.button2);
+        info = findViewById(R.id.textView2);
+        loginButton = findViewById(R.id.button);
+        deleteButton = findViewById(R.id.button5);
+        List<Account> accountList = new ArrayList<>();
+        ListView list = findViewById(R.id.listView);
 
-        if (!isAccessibilityOn (context, WhatsappAccessibilityService.class)) {
-            Intent intent = new Intent (Settings.ACTION_ACCESSIBILITY_SETTINGS);
-            context.startActivity (intent);
+        AccountManager accountManager = AccountManager.get(context);
+        android.accounts.Account[] accounts = accountManager.getAccountsByType("Regular");
+
+        if(SaveSharedPreference.getLoggedStatus(getApplicationContext())) {
+
+            Intent intent = new Intent(getApplicationContext(), AfterLogin.class);
+            startActivity(intent);
+        }else{
+
+            if(accounts.length >0){
+
+                for(int j = 0; j <accounts.length ; j++){
+
+                    String url = accountManager.getUserData(accounts[j], "url");
+                    int userId = Integer.parseInt(accountManager.getUserData(accounts[j], "userId"));
+                    String token = accountManager.getUserData(accounts[j], "token");
+                    String validationToken = accountManager.getUserData(accounts[j], "validationToken");
+                    String name = accounts[j].name;
+                    Account account = new Account();
+                    account.setUserId(userId);
+                    account.setUrl(url);
+                    account.setAccountName(name);
+                    account.setToken(token);
+                    account.setValidationToken(validationToken);
+                    accountList.add(account);
+                }
+            }
+
+            if(accounts.length == 0){
+
+                info.setText("Hiç hesap bulunamadı, lütfen hesap ekleyiniz.");
+            }else{
+                mAdapter = new AccountAdapter(this,accountList);
+                list.setAdapter(mAdapter);
+                mAdapter.notifyDataSetChanged();
+                list.setOnItemClickListener(new android.widget.AdapterView.OnItemClickListener() {
+
+                    public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+
+                        Account selected = (Account)parent.getAdapter().getItem(position);
+                        Toast.makeText(getApplicationContext(), "Seçilen Hesap: " + selected.getAccountName(), Toast.LENGTH_SHORT).show();
+                        SaveSharedPreference.setLoggedIn(getApplicationContext(), true);
+                        SaveSharedPreference.setUserId(getApplicationContext(), selected.getUserId());
+                        SaveSharedPreference.setUrl(getApplicationContext(), selected.getUrl());
+                        SaveSharedPreference.setToken(getApplicationContext(), selected.getToken());
+                        SaveSharedPreference.setValidationToken(getApplicationContext(), selected.getValidationToken());
+                        Intent login = new Intent(MainActivity.this, AfterLogin.class);
+                        login.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK |FLAG_ACTIVITY_CLEAR_TASK);
+                        startActivity(login);
+                    }
+                });
+                info.setText("Hesaplardan birini seçiniz.");
+            }
         }
 
-        if(!isNotificationServiceEnabled()){
-            enableNotificationListenerAlertDialog = buildNotificationServiceAlertDialog();
-            enableNotificationListenerAlertDialog.show();
-        }
+        deleteButton.setOnClickListener(new View.OnClickListener() {
 
-        servisButon.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                AccountManager accMgr = AccountManager.get(getApplicationContext());
+                android.accounts.Account[] deleteAccounts = accMgr.getAccountsByType("Regular");
+                for (android.accounts.Account ac : deleteAccounts) {
+                    accMgr.removeAccount(ac, null, null);
+                }
+                Intent intent = getIntent();
+                finish();
+                startActivity(intent);
+            }
+        });
+
+        loginButton.setOnClickListener(new View.OnClickListener() {
 
             @Override
             public void onClick(View v) {
 
-                    Intent intent = new Intent(getApplicationContext(),NotificationService.class);
-                    startService(intent);
+                Intent intent = new Intent(getApplicationContext(), AccountActivity.class);
+                startActivity(intent);
             }
         });
-    }
-
-    private boolean isAccessibilityOn (Context context, Class<? extends AccessibilityService> clazz) {
-
-        int accessibilityEnabled = 0;
-        final String service = context.getPackageName () + "/" + clazz.getCanonicalName ();
-        try {
-            accessibilityEnabled = Settings.Secure.getInt (context.getApplicationContext ().getContentResolver (), Settings.Secure.ACCESSIBILITY_ENABLED);
-        } catch (Settings.SettingNotFoundException ignored) {
-        }
-
-        TextUtils.SimpleStringSplitter colonSplitter = new TextUtils.SimpleStringSplitter (':');
-
-        if (accessibilityEnabled == 1) {
-            String settingValue = Settings.Secure.getString (context.getApplicationContext ().getContentResolver (), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-
-            if (settingValue != null) {
-                colonSplitter.setString (settingValue);
-
-                while (colonSplitter.hasNext ()) {
-                    String accessibilityService = colonSplitter.next ();
-
-                    if (accessibilityService.equalsIgnoreCase (service)) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    private boolean isNotificationServiceEnabled(){
-        String pkgName = getPackageName();
-        final String flat = Settings.Secure.getString(getContentResolver(),
-                ENABLED_NOTIFICATION_LISTENERS);
-        if (!TextUtils.isEmpty(flat)) {
-            final String[] names = flat.split(":");
-            for (int i = 0; i < names.length; i++) {
-                final ComponentName cn = ComponentName.unflattenFromString(names[i]);
-                if (cn != null) {
-                    if (TextUtils.equals(pkgName, cn.getPackageName())) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    private AlertDialog buildNotificationServiceAlertDialog(){
-        AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(this);
-        alertDialogBuilder.setTitle("service");
-        alertDialogBuilder.setMessage("expalnation");
-        alertDialogBuilder.setPositiveButton("yes",
-                new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface dialog, int id) {
-                        startActivity(new Intent(ACTION_NOTIFICATION_LISTENER_SETTINGS));
-                    }
-                });
-        alertDialogBuilder.setNegativeButton("no",
-                new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface dialog, int id) {
-                        // If you choose to not enable the notification listener
-                        // the app. will not work as expected
-                    }
-                });
-        return(alertDialogBuilder.create());
     }
 }

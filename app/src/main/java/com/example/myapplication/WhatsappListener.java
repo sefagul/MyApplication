@@ -21,6 +21,7 @@ public class WhatsappListener extends NotificationListenerService {
 
     Context context;
     private boolean firstTime = true;
+    int userId;
 
     @Override
     public void onCreate() {
@@ -33,45 +34,56 @@ public class WhatsappListener extends NotificationListenerService {
     @Override
     public void onNotificationPosted(StatusBarNotification sbn){
 
-        if(firstTime) {
+        if(SaveSharedPreference.getLoggedStatus(context)) {
 
-            String pack = sbn.getPackageName();
-            Bundle extras = sbn.getNotification().extras;
-            String title = extras.getString("android.title");
-            String text = extras.getCharSequence("android.text").toString();
+            userId = SaveSharedPreference.getUserId(context);
 
-            if (pack.equals("com.whatsapp")) {
+            if (firstTime) {
 
-                JSONObject clientInformation = getClientInformation(context);
-                String phoneNumber = getPhoneNumber(title,context);
+                String pack = sbn.getPackageName();
+                Bundle extras = sbn.getNotification().extras;
+                String title = extras.getString("android.title");
+                String text = extras.getCharSequence("android.text").toString();
 
-                if(phoneNumber.equals("Unsaved")){
+                if (pack.equals("com.whatsapp")) {
 
-                    phoneNumber = title.replaceAll("\\s+","");
+                    JSONObject clientInformation = getClientInformation(context);
+                    String phoneNumber = getPhoneNumber(title, context);
+
+                    if (phoneNumber.equals("Unsaved")) {
+
+                        phoneNumber = title.replaceAll("\\s+", "");
+                    } else {
+                        phoneNumber = phoneNumber.replaceAll("\\s+", "");
+                    }
+
+                    try {
+                        clientInformation.put("MSG", text);
+                        clientInformation.put("PHONENUMBER", phoneNumber);
+                        clientInformation.put("TYPE", "whatsapp");
+                        clientInformation.put("USERID",userId);
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+
+                    MediaType MEDIA_TYPE = MediaType.parse("application/json; charset=utf-8");
+                    RequestBody body = RequestBody.create(MEDIA_TYPE, clientInformation.toString());
+                    String url = SaveSharedPreference.getUrl(context);
+                    String token = SaveSharedPreference.getToken(context);
+                    token = "Bearer " + token;
+
+                    try{
+                        Request request = new Request.Builder().url(url).post(body).header("Authorization", token).build();
+                        new insertMessageToDB().execute(request);
+                    }catch(IllegalArgumentException e){
+                        e.printStackTrace();
+                    }
                 }
-                else{
-                    phoneNumber = phoneNumber.replaceAll("\\s+","");
-                }
 
-                try {
-                    clientInformation.put("MSG",text);
-                    clientInformation.put("PHONENUMBER",phoneNumber);
-                    clientInformation.put("TYPE","whatsapp");
-                }
-                catch (JSONException e) {
-                    e.printStackTrace();
-                }
-
-                MediaType MEDIA_TYPE = MediaType.parse("application/json; charset=utf-8");
-                RequestBody body = RequestBody.create(MEDIA_TYPE, clientInformation.toString());
-                Request request = new Request.Builder().url("http://192.168.10.179:8080/AndroidServer/Server").post(body).build();
-
-                new insertMessageToDB().execute(request);
+                firstTime = false;
+            } else {
+                firstTime = true;
             }
-
-            firstTime = false;
-        }else{
-            firstTime = true;
         }
     }
 

